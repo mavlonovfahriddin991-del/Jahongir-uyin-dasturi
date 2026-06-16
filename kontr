@@ -24,32 +24,6 @@
             background-color: var(--bg-color);
             color: white;
             font-family: var(--font-main);
-            overflow: hidden;<!DOCTYPE html>
-<html lang="uz">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Kosmik Otishma (Space Shooter)</title>
-    <style>
-        :root {
-            --primary-color: #00f3ff;
-            --danger-color: #ff0055;
-            --bg-color: #050510;
-            --ui-bg: rgba(255, 255, 255, 0.1);
-            --font-main: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-        }
-
-        * {
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
-            user-select: none; /* Matnni ajratib olishni oldini oladi */
-        }
-
-        body {
-            background-color: var(--bg-color);
-            color: white;
-            font-family: var(--font-main);
             overflow: hidden; /* Aylantirish chiziqlarini yashirish */
             height: 100vh;
             display: flex;
@@ -176,4 +150,554 @@
         .control-btn {
             width: 60px;
             height: 60px;
-            background: rgba(255, 255, 255, 0.
+            background: rgba(255, 255, 255, 0.1);
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            pointer-events: auto;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 24px;
+            color: white;
+            backdrop-filter: blur(4px);
+        }
+        
+        .control-btn:active {
+            background: var(--primary-color);
+            color: black;
+        }
+
+        .controls-group {
+            display: flex;
+            gap: 15px;
+        }
+
+        @media (max-width: 768px) {
+            .mobile-controls {
+                display: flex;
+            }
+            .modal h1 { font-size: 2rem; }
+            #gameCanvas { width: 100%; height: 100vh; border: none; }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- O'yin statistikasi (HUD) -->
+    <div class="hud">
+        <div class="stat-box">
+            <span class="stat-label">BALL:</span>
+            <span id="scoreEl">0</span>
+        </div>
+        <div class="stat-box" style="border-color: var(--danger-color);">
+            <span class="stat-label">HAYOT:</span>
+            <span id="livesEl">3</span>
+        </div>
+    </div>
+
+    <!-- O'yin maydoni -->
+    <canvas id="gameCanvas"></canvas>
+
+    <!-- Mobil boshqaruv -->
+    <div class="mobile-controls">
+        <div class="controls-group">
+            <div class="control-btn" id="leftBtn">←</div>
+            <div class="control-btn" id="rightBtn">→</div>
+        </div>
+        <div class="controls-group">
+            <div class="control-btn" id="fireBtn">🔥</div>
+        </div>
+    </div>
+
+    <!-- Boshlash oynasi -->
+    <div class="modal" id="startModal">
+        <h1>Galaktika Himoyachisi</h1>
+        <p>Siz kosmik kemani boshqarasiz. Dushmanlarning hujumini qaytaring! <br><br>
+           <b>Kompyuter:</b> Sichqoncha bilan harakatlaning va o'q otish uchun bosing.<br>
+           <b>Mobil:</b> Tugmalardan foydalaning.
+        </p>
+        <button class="btn" id="startGameBtn">O'yinni boshlash</button>
+    </div>
+
+    <!-- O'yin tugashi oynasi -->
+    <div class="modal hidden" id="gameOverModal">
+        <h1>O'yin Tugadi!</h1>
+        <p>Sizning yakuniy ballingiz: <b id="finalScore" style="color: var(--primary-color); font-size: 1.5rem;">0</b></p>
+        <button class="btn" id="restartBtn">Qayta o'ynash</button>
+    </div>
+
+    <script>
+        // --- O'yin Sozlamalari ---
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // O'lchamlarni to'liq ekranga moslashtiramiz
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+
+        // O'zgaruvchilar
+        let score = 0;
+        let lives = 3;
+        let gameActive = false;
+        let animationId;
+        let frame = 0;
+        
+        // Player (O'yinchi) obyekti
+        const player = {
+            x: canvas.width / 2,
+            y: canvas.height - 100,
+            radius: 20,
+            color: '#00f3ff',
+            speed: 5,
+            dx: 0
+        };
+
+        // Massivlar
+        let projectiles = [];
+        let enemies = [];
+        let particles = []; // Portlash effektlari uchun
+        let stars = []; // Fon yulduzlari
+
+        // Sichqoncha pozitsiyasi
+        let mouseX = canvas.width / 2;
+
+        // --- Fon effektlari (Yulduzlar) ---
+        class Star {
+            constructor() {
+                this.x = Math.random() * canvas.width;
+                this.y = Math.random() * canvas.height;
+                this.radius = Math.random() * 2;
+                this.speed = Math.random() * 3 + 0.5;
+            }
+            update() {
+                this.y += this.speed;
+                if (this.y > canvas.height) {
+                    this.y = 0;
+                    this.x = Math.random() * canvas.width;
+                }
+            }
+            draw() {
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2, false);
+                ctx.fillStyle = `rgba(255, 255, 255, ${Math.random()})`;
+                ctx.fill();
+            }
+        }
+
+        function initStars() {
+            stars = [];
+            for (let i = 0; i < 100; i++) {
+                stars.push(new Star());
+            }
+        }
+
+        // --- O'q (Projectile) klassi ---
+        class Projectile {
+            constructor(x, y, radius, color, velocity) {
+                this.x = x;
+                this.y = y;
+                this.radius = radius;
+                this.color = color;
+                this.velocity = velocity;
+            }
+
+            draw() {
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2, false);
+                ctx.fillStyle = this.color;
+                ctx.shadowBlur = 10; // Porlash effekti
+                ctx.shadowColor = this.color;
+                ctx.fill();
+                ctx.shadowBlur = 0; // Effektni o'chirish
+            }
+
+            update() {
+                this.draw();
+                this.x = this.x + this.velocity.x;
+                this.y = this.y + this.velocity.y;
+            }
+        }
+
+        // --- Dushman (Enemy) klassi ---
+        class Enemy {
+            constructor(x, y, radius, color, velocity) {
+                this.x = x;
+                this.y = y;
+                this.radius = radius;
+                this.color = color;
+                this.velocity = velocity;
+                // Dushmanlarni bir oz aylantirish uchun
+                this.angle = 0;
+                this.spinSpeed = Math.random() * 0.1 - 0.05;
+            }
+
+            draw() {
+                ctx.save();
+                ctx.translate(this.x, this.y);
+                ctx.rotate(this.angle);
+                
+                // Dushman shakli (Uchburchak)
+                ctx.beginPath();
+                ctx.moveTo(0, -this.radius);
+                ctx.lineTo(this.radius, this.radius);
+                ctx.lineTo(-this.radius, this.radius);
+                ctx.closePath();
+                
+                ctx.strokeStyle = this.color;
+                ctx.lineWidth = 3;
+                ctx.stroke();
+                
+                // Ichki to'ldirish
+                ctx.fillStyle = 'rgba(255, 0, 85, 0.2)';
+                ctx.fill();
+                
+                ctx.restore();
+            }
+
+            update() {
+                this.angle += this.spinSpeed;
+                this.draw();
+                this.x += this.velocity.x;
+                this.y += this.velocity.y;
+            }
+        }
+
+        // --- Zarrachalar (Particles) - Portlash effekti ---
+        const friction = 0.98;
+        class Particle {
+            constructor(x, y, radius, color, velocity) {
+                this.x = x;
+                this.y = y;
+                this.radius = radius;
+                this.color = color;
+                this.velocity = velocity;
+                this.alpha = 1;
+            }
+
+            draw() {
+                ctx.save();
+                ctx.globalAlpha = this.alpha;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2, false);
+                ctx.fillStyle = this.color;
+                ctx.fill();
+                ctx.restore();
+            }
+
+            update() {
+                this.draw();
+                this.velocity.x *= friction;
+                this.velocity.y *= friction;
+                this.x = this.x + this.velocity.x;
+                this.y = this.y + this.velocity.y;
+                this.alpha -= 0.01; // Vaqt o'tishi bilan yo'qoladi
+            }
+        }
+
+        // --- O'yinchi chizish ---
+        function drawPlayer() {
+            ctx.beginPath();
+            // Kema shakli
+            ctx.moveTo(player.x, player.y - player.radius); // Burun
+            ctx.lineTo(player.x + player.radius, player.y + player.radius); // O'ng qanot
+            ctx.lineTo(player.x, player.y + player.radius - 10); // Markaz orqa
+            ctx.lineTo(player.x - player.radius, player.y + player.radius); // Chap qanot
+            ctx.closePath();
+            
+            ctx.fillStyle = player.color;
+            ctx.shadowBlur = 15;
+            ctx.shadowColor = player.color;
+            ctx.fill();
+            ctx.shadowBlur = 0;
+        }
+
+        // --- Dushman yaratish ---
+        function spawnEnemies() {
+            // Har 60 kadrda (taxminan 1 soniyada) yangi dushman
+            if (frame % 60 === 0) {
+                const radius = Math.random() * (30 - 15) + 15;
+                let x = Math.random() * (canvas.width - radius * 2) + radius;
+                let y = -radius; // Ekran tepasidan tushadi
+                
+                const color = `hsl(${Math.random() * 360}, 50%, 50%)`;
+                
+                // Dushman pastga tushadi
+                const velocity = {
+                    x: (Math.random() - 0.5) * 1, // Kichik lateral harakat
+                    y: Math.random() * 2 + 1      // Pastga tushish tezligi
+                };
+
+                enemies.push(new Enemy(x, y, radius, color, velocity));
+            }
+        }
+
+        // --- Asosiy o'yin tsikli ---
+        function animate() {
+            if (!gameActive) return;
+            
+            animationId = requestAnimationFrame(animate);
+            
+            // Fonni tozalash (iz qoldirmasligi uchun)
+            ctx.fillStyle = 'rgba(5, 5, 16, 0.3)'; // Kichik iz effekti (trail)
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Yulduzlarni yangilash
+            stars.forEach(star => {
+                star.update();
+                star.draw();
+            });
+
+            drawPlayer();
+
+            // O'qlarni yangilash
+            projectiles.forEach((projectile, index) => {
+                projectile.update();
+
+                // Ekrandan chiqib ketgan o'qlarni o'chirish
+                if (projectile.y + projectile.radius < 0) {
+                    setTimeout(() => {
+                        projectiles.splice(index, 1);
+                    }, 0);
+                }
+            });
+
+            // Zarrachalarni (portlashlar) yangilash
+            particles.forEach((particle, index) => {
+                if (particle.alpha <= 0) {
+                    particles.splice(index, 1);
+                } else {
+                    particle.update();
+                }
+            });
+
+            // Dushmanlarni yangilash va to'qnashuvlarni tekshirish
+            enemies.forEach((enemy, index) => {
+                enemy.update();
+
+                // 1. O'q bilan dushman to'qnashuvi
+                projectiles.forEach((projectile, pIndex) => {
+                    const dist = Math.hypot(projectile.x - enemy.x, projectile.y - enemy.y);
+                    
+                    if (dist - enemy.radius - projectile.radius < 1) {
+                        
+                        // Portlash effekti yaratish
+                        for (let i = 0; i < 8; i++) {
+                            particles.push(new Particle(
+                                projectile.x, 
+                                projectile.y, 
+                                Math.random() * 3, 
+                                enemy.color, 
+                                {
+                                    x: (Math.random() - 0.5) * 6,
+                                    y: (Math.random() - 0.5) * 6
+                                }
+                            ));
+                        }
+
+                        // O'q va dushmanni o'chirish
+                        setTimeout(() => {
+                            enemies.splice(index, 1);
+                            projectiles.splice(pIndex, 1);
+                        }, 0);
+
+                        // Ballni oshirish
+                        score += 100;
+                        document.getElementById('scoreEl').innerText = score;
+                    }
+                });
+
+                // 2. O'yinchi bilan dushman to'qnashuvi
+                const distPlayer = Math.hypot(player.x - enemy.x, player.y - enemy.y);
+                if (distPlayer - enemy.radius - player.radius < 1) {
+                    // Portlash
+                     for (let i = 0; i < 15; i++) {
+                            particles.push(new Particle(
+                                player.x, 
+                                player.y, 
+                                Math.random() * 4, 
+                                '#ff0055', 
+                                {
+                                    x: (Math.random() - 0.5) * 10,
+                                    y: (Math.random() - 0.5) * 10
+                                }
+                            ));
+                        }
+                    
+                    enemies.splice(index, 1);
+                    lives--;
+                    document.getElementById('livesEl').innerText = lives;
+
+                    if (lives <= 0) {
+                        endGame();
+                    }
+                }
+
+                // Pastga chiqib ketgan dushmanlar
+                if (enemy.y - enemy.radius > canvas.height) {
+                    enemies.splice(index, 1);
+                    // Agar dushman o'tib ketsa, ball yoki hayot kamayishi mumkin
+                    // Hozircha shunchaki o'chiramiz
+                }
+            });
+            
+            // Klaviatura boshqaruvi
+            if (keys.ArrowRight && player.x + player.radius < canvas.width) {
+                player.x += player.speed;
+            }
+            if (keys.ArrowLeft && player.x - player.radius > 0) {
+                player.x -= player.speed;
+            }
+
+            // Sichqoncha boshqaruvi (mobil tugmalar ham shunga ta'sir qiladi)
+            // Sichqoncha klaviaturadan ustun turadi (agar sichqoncha harakatlansa)
+            // Lekin mobil qurilmalarda mouseX o'zgarmaydi, shuning uchun aralash ishlashini ta'minlaymiz
+            // sodda qilish uchun: agar sichqoncha ishlatilayotgan bo'lsa, player.x = mouseX
+            
+            // Dushman yaratish funksiyasi
+            spawnEnemies();
+            frame++;
+        }
+
+        // --- O'yin boshlash va tugashi ---
+        function startGame() {
+            gameActive = true;
+            score = 0;
+            lives = 3;
+            frame = 0;
+            projectiles = [];
+            enemies = [];
+            particles = [];
+            player.x = canvas.width / 2;
+            
+            document.getElementById('scoreEl').innerText = score;
+            document.getElementById('livesEl').innerText = lives;
+            
+            document.getElementById('startModal').classList.add('hidden');
+            document.getElementById('gameOverModal').classList.add('hidden');
+            
+            initStars();
+            animate();
+        }
+
+        function endGame() {
+            gameActive = false;
+            cancelAnimationFrame(animationId);
+            document.getElementById('finalScore').innerText = score;
+            document.getElementById('gameOverModal').classList.remove('hidden');
+        }
+
+        // --- Hodisalar (Event Listeners) ---
+        
+        // O'q otish (Sichqoncha bosilganda)
+        window.addEventListener('click', (event) => {
+            if (!gameActive) return;
+            
+            const projectile = new Projectile(
+                player.x, 
+                player.y, 
+                5, 
+                '#fff', 
+                { x: 0, y: -10 } // Faqat yuqoriga uchadi
+            );
+            projectiles.push(projectile);
+        });
+
+        // O'q otish (Space tugmasi bilan)
+        window.addEventListener('keydown', (e) => {
+            if (e.code === 'Space' && gameActive) {
+                 const projectile = new Projectile(
+                    player.x, 
+                    player.y, 
+                    5, 
+                    '#fff', 
+                    { x: 0, y: -10 }
+                );
+                projectiles.push(projectile);
+            }
+        });
+
+        // Sichqoncha harakati
+        window.addEventListener('mousemove', (event) => {
+            if (!gameActive) return;
+            // Sichqoncha x pozitsiyasini olish (canvas chegaralarida)
+            mouseX = event.clientX;
+            // Kema sichqoncha davomida harakatlanadi
+            player.x = mouseX;
+            
+            // Chegaradan chiqmasligi
+            if (player.x < player.radius) player.x = player.radius;
+            if (player.x > canvas.width - player.radius) player.x = canvas.width - player.radius;
+        });
+
+        // Klaviatura boshqaruvi uchun obyekt
+        const keys = {
+            ArrowRight: false,
+            ArrowLeft: false
+        };
+
+        window.addEventListener('keydown', (e) => {
+            if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') keys.ArrowRight = true;
+            if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') keys.ArrowLeft = true;
+        });
+
+        window.addEventListener('keyup', (e) => {
+            if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') keys.ArrowRight = false;
+            if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') keys.ArrowLeft = false;
+        });
+
+        // Tugmalar boshqaruvi
+        document.getElementById('startGameBtn').addEventListener('click', startGame);
+        document.getElementById('restartBtn').addEventListener('click', startGame);
+
+        // Oyna o'lchami o'zgarganda
+        window.addEventListener('resize', () => {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            player.y = canvas.height - 100;
+            initStars();
+        });
+
+        // Mobil boshqaruv tugmalari
+        const leftBtn = document.getElementById('leftBtn');
+        const rightBtn = document.getElementById('rightBtn');
+        const fireBtn = document.getElementById('fireBtn');
+
+        // Mobil uchun touch hodisalari
+        leftBtn.addEventListener('touchstart', (e) => { e.preventDefault(); keys.ArrowLeft = true; });
+        leftBtn.addEventListener('touchend', (e) => { e.preventDefault(); keys.ArrowLeft = false; });
+        
+        rightBtn.addEventListener('touchstart', (e) => { e.preventDefault(); keys.ArrowRight = true; });
+        rightBtn.addEventListener('touchend', (e) => { e.preventDefault(); keys.ArrowRight = false; });
+
+        fireBtn.addEventListener('touchstart', (e) => { 
+            e.preventDefault(); 
+            if(gameActive) {
+                 const projectile = new Projectile(
+                    player.x, 
+                    player.y, 
+                    5, 
+                    '#fff', 
+                    { x: 0, y: -10 }
+                );
+                projectiles.push(projectile);
+            }
+        });
+
+        // Dastlabki fonni ishga tushiramiz
+        initStars();
+        // Fon animatsiyasi (O'yin boshlanmasdan ham yulduzlar parishi uchun)
+        function bgAnimate() {
+            if(gameActive) return; // Agar o'yin bo'layotgan bo'lsa, asosiy tsikl quradi
+            requestAnimationFrame(bgAnimate);
+            ctx.fillStyle = 'rgba(5, 5, 16, 0.3)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            stars.forEach(star => {
+                star.update();
+                star.draw();
+            });
+        }
+        bgAnimate();
+
+    </script>
+</body>
+</html>
